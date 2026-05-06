@@ -32,6 +32,8 @@ export type StoreSettings = {
   description: string;
   whatsapp_number: string;
   notice_text: string;
+  hero_note: string;
+  footer_text: string;
   trust_text?: string | null;
   created_at?: string;
   updated_at?: string;
