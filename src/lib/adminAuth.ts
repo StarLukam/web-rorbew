@@ -30,26 +30,22 @@ export function verifyAdminToken(token?: string) {
   }
 }
 
-export function createAdminCookie(response: NextResponse) {
-  response.cookies.set(COOKIE_NAME, createAdminToken(), {
+export async function createAdminCookie() {
+  cookies().set(COOKIE_NAME, createAdminToken(), {
     httpOnly: true,
     sameSite: "lax",
     secure: true,
     path: "/",
     maxAge: 60 * 60 * 6,
   });
-
-  return response;
 }
 
-export function clearAdminCookie(response: NextResponse) {
-  response.cookies.delete(COOKIE_NAME);
-  return response;
+export async function clearAdminCookie() {
+  cookies().delete(COOKIE_NAME);
 }
 
 export function isAdminLoggedIn() {
-  const cookieStore = cookies();
-  const token = cookieStore.get(COOKIE_NAME)?.value;
+  const token = cookies().get(COOKIE_NAME)?.value;
   return verifyAdminToken(token);
 }
 
