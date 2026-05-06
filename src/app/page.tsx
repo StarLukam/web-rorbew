@@ -2,6 +2,9 @@ import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { Product, StoreSettings } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function gameSlug(name: string) {
   return name
     .toLowerCase()
