@@ -1,125 +1,285 @@
-"use client";
-
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { ArrowLeft, Clock, MessageCircle, ShieldCheck, Star } from "lucide-react";
-import type { Product, StoreSettings } from "@/lib/types";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { Product, StoreSettings } from "@/lib/types";
 
-type Payload = { settings: StoreSettings | null; products: Product[] };
-const fallback: StoreSettings = { id: 1, store_name: "Adicoran", badge_text: "Store akun game", headline: "Adicoran", description: "", whatsapp_number: "", notice_text: "", hero_note: "", footer_text: "© Adicoran" };
-function money(n: number) { return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n || 0); }
-function promoActive(p: Product) { return Boolean(p.discount_percent && (!p.promo_ends_at || new Date(p.promo_ends_at) > new Date())); }
-function finalPrice(p: Product) { return promoActive(p) ? Math.round(p.price * (1 - Number(p.discount_percent || 0) / 100)) : p.price; }
-function promoCountdown(p: Product) {
-  if (!p.promo_ends_at || !promoActive(p)) return "Promo aktif";
-  const diff = new Date(p.promo_ends_at).getTime() - Date.now();
-  const days = Math.floor(diff / 86_400_000);
-  const hours = Math.floor((diff % 86_400_000) / 3_600_000);
-  const minutes = Math.floor((diff % 3_600_000) / 60_000);
-  if (days > 0) return `${days} hari ${hours} jam lagi`;
-  if (hours > 0) return `${hours} jam ${minutes} menit lagi`;
-  return `${Math.max(minutes, 0)} menit lagi`;
-}
-function wa(product: Product, settings: StoreSettings) {
-  const number = product.whatsapp_number || settings.whatsapp_number || process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "";
-  return `https://wa.me/${number}?text=${encodeURIComponent(`Halo admin ${settings.store_name}, saya mau order ${product.title}`)}`;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function formatPrice(price: number) {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  }).format(price);
 }
 
-export default function ProductDetailPage() {
-  const params = useParams<{ id: string }>();
-  const [data, setData] = useState<Payload>({ settings: fallback, products: [] });
-  const [active, setActive] = useState(0);
+function gameSlug(name: string) {
+  return name
+    .toLowerCase()
+    .trim()
+    .replaceAll("&", "and")
+    .replaceAll(" ", "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
 
-  useEffect(() => {
-    fetch("/api/public/store", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => setData({ settings: j.settings || fallback, products: j.products || [] }));
-  }, []);
+function isPromoActive(product: Product) {
+  if (!product.discount_percent || !product.promo_ends_at) return false;
+  return new Date(product.promo_ends_at).getTime() > Date.now();
+}
 
-  const settings = data.settings || fallback;
-  const product = useMemo(() => data.products.find((p) => p.id === params.id), [data.products, params.id]);
+function promoText(product: Product) {
+  if (!product.promo_ends_at) return "";
+
+  const end = new Date(product.promo_ends_at).getTime();
+  const now = Date.now();
+  const diff = end - now;
+
+  if (diff <= 0) return "Promo berakhir";
+
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+
+  if (days > 0) return `Promo berakhir ${days} hari ${hours} jam lagi`;
+  return `Promo berakhir ${hours} jam lagi`;
+}
+
+async function getStoreSettings(): Promise<StoreSettings> {
+  const { data } = await supabaseAdmin
+    .from("store_settings")
+    .select("*")
+    .limit(1)
+    .single();
+
+  return {
+    id: data?.id || 1,
+    store_name: data?.store_name || "Adicoran",
+    badge_text: data?.badge_text || "Akun Game Store",
+    headline: data?.headline || "Mau beli akun game apa?",
+    description:
+      data?.description ||
+      "Pilih game, cek promo aktif, lihat produk unggulan, lalu order langsung via WhatsApp.",
+    whatsapp_number:
+      data?.whatsapp_number || process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "",
+    notice_text: data?.notice_text || "Transaksi dilakukan via WhatsApp.",
+    hero_note: data?.hero_note || "Simple store, fast response.",
+    footer_text: data?.footer_text || "© Adicoran",
+    trust_text: data?.trust_text || "Diproses manual via WhatsApp.",
+  };
+}
+
+async function getProduct(id: string): Promise<Product | null> {
+  const { data, error } = await supabaseAdmin
+    .from("products")
+    .select(
+      `
+      *,
+      images:product_images(*)
+    `
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return data as Product;
+}
+
+export default async function ProductDetailPage({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const store = await getStoreSettings();
+  const product = await getProduct(params.id);
 
   if (!product) {
     return (
-      <main className="grid min-h-screen place-items-center bg-stone-100 px-4 text-stone-950">
-        <div className="rounded-[2rem] bg-white p-8 text-center shadow-sm ring-1 ring-stone-200">
-          <p className="text-2xl font-black">Produk belum ketemu</p>
-          <Link href="/" className="mt-5 inline-block rounded-2xl bg-stone-950 px-5 py-3 font-black text-white">Balik ke Home</Link>
+      <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 text-zinc-950">
+        <div className="rounded-[2rem] border border-zinc-200 bg-white p-8 text-center shadow-sm">
+          <h1 className="text-3xl font-black">Produk belum ketemu</h1>
+          <p className="mt-3 text-zinc-500">
+            Produk mungkin sudah dihapus atau link-nya salah.
+          </p>
+          <Link
+            href="/"
+            className="mt-6 inline-flex rounded-2xl bg-zinc-950 px-6 py-3 font-bold text-white"
+          >
+            Balik ke Home
+          </Link>
         </div>
       </main>
     );
   }
 
-  const images = product.images || [];
-  const img = images[active]?.image_url;
-  const activePromo = promoActive(product);
+  const images =
+    product.images && product.images.length > 0
+      ? product.images
+      : [
+          {
+            id: "fallback",
+            product_id: product.id,
+            image_url: `/games/${gameSlug(product.game || "the-spike")}.png`,
+            sort_order: 0,
+          },
+        ];
+
+  const activePromo = isPromoActive(product);
+
+  const finalPrice =
+    activePromo && product.discount_percent
+      ? product.price -
+        Math.round((product.price * product.discount_percent) / 100)
+      : product.price;
+
+  const whatsappNumber =
+    product.whatsapp_number ||
+    store.whatsapp_number ||
+    process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ||
+    "";
+
+  const orderText = encodeURIComponent(
+    `Halo admin ${store.store_name}, saya mau order produk:\n\n${product.title}\nGame: ${product.game}\nHarga: ${formatPrice(finalPrice)}`
+  );
+
+  const waLink = whatsappNumber
+    ? `https://wa.me/${whatsappNumber}?text=${orderText}`
+    : "#";
 
   return (
-    <main className="min-h-screen bg-stone-100 text-stone-950">
-      <header className="border-b border-stone-200 bg-white">
+    <main className="min-h-screen bg-zinc-50 text-zinc-950">
+      <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
-          <Link href={`/games/${encodeURIComponent(product.game.toLowerCase().replaceAll(" ", "-"))}`} className="flex items-center gap-2 font-black"><ArrowLeft size={18} /> {product.game}</Link>
-          <Link href="/" className="rounded-full border border-stone-300 px-4 py-2 text-sm font-bold">{settings.store_name}</Link>
+          <Link href="/" className="text-sm font-black">
+            ← {store.store_name}
+          </Link>
+
+          <Link
+            href={`/games/${gameSlug(product.game || "")}`}
+            className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-800"
+          >
+            {product.game}
+          </Link>
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-7xl gap-6 px-4 py-10 lg:grid-cols-[1fr_.85fr]">
-        <div className="rounded-[2rem] bg-white p-4 shadow-sm ring-1 ring-stone-200">
-          <div className="grid aspect-[4/3] place-items-center overflow-hidden rounded-[1.5rem] bg-stone-200">
-            {img ? <img src={img} alt={product.title} className="h-full w-full object-cover" /> : <span className="text-stone-400">No Image</span>}
-          </div>
-          {images.length > 1 && (
-            <div className="mt-4 grid grid-cols-4 gap-3 md:grid-cols-8">
-              {images.map((image, index) => (
-                <button key={image.id} onClick={() => setActive(index)} className={`overflow-hidden rounded-2xl ring-2 ${active === index ? "ring-stone-950" : "ring-transparent"}`}>
-                  <img src={image.image_url} alt={`${product.title} ${index + 1}`} className="h-20 w-full object-cover" />
-                </button>
+      <section className="mx-auto grid max-w-7xl gap-6 px-4 py-8 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-[2rem] border border-zinc-200 bg-white p-4 shadow-sm">
+          <img
+            src={images[0].image_url}
+            alt={product.title}
+            className="h-80 w-full rounded-[1.5rem] bg-zinc-100 object-cover sm:h-[520px]"
+          />
+
+          {images.length > 1 ? (
+            <div className="mt-4 grid grid-cols-4 gap-3">
+              {images.slice(0, 8).map((image) => (
+                <img
+                  key={image.id}
+                  src={image.image_url}
+                  alt={product.title}
+                  className="h-20 w-full rounded-2xl bg-zinc-100 object-cover"
+                />
               ))}
             </div>
-          )}
+          ) : null}
         </div>
 
-        <div className="rounded-[2rem] bg-white p-7 shadow-sm ring-1 ring-stone-200">
+        <div className="rounded-[2rem] border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-black text-stone-700">{product.game}</span>
-            {product.category && <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-black text-stone-700">{product.category}</span>}
-            {product.status === "sold" && <span className="rounded-full bg-stone-950 px-3 py-1 text-xs font-black text-white">SOLD</span>}
-            {product.featured && <span className="rounded-full bg-stone-950 px-3 py-1 text-xs font-black text-white"><Star size={12} className="mr-1 inline" />Unggulan</span>}
-            {activePromo && <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">-{product.discount_percent}%</span>}
+            <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold text-zinc-600">
+              {product.game}
+            </span>
+
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-bold ${
+                product.status === "sold"
+                  ? "bg-red-100 text-red-700"
+                  : "bg-green-100 text-green-700"
+              }`}
+            >
+              {product.status === "sold" ? "Sold" : "Ready"}
+            </span>
+
+            {product.featured ? (
+              <span className="rounded-full bg-zinc-950 px-3 py-1 text-xs font-bold text-white">
+                Unggulan
+              </span>
+            ) : null}
+
+            {activePromo ? (
+              <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white">
+                -{product.discount_percent}%
+              </span>
+            ) : null}
           </div>
 
-          <h1 className="mt-5 text-3xl font-black md:text-5xl">{product.title}</h1>
-          {product.description && <p className="mt-4 whitespace-pre-line leading-8 text-stone-600">{product.description}</p>}
+          <h1 className="mt-5 text-4xl font-black tracking-tight">
+            {product.title}
+          </h1>
 
-          {activePromo && (
-            <div className="mt-6 rounded-3xl bg-red-50 p-5 text-red-800 ring-1 ring-red-100">
-              <p className="flex items-center gap-2 font-black"><Clock size={18} /> Promo berakhir dalam {promoCountdown(product)}</p>
-              {product.promo_title && <p className="mt-1 text-sm font-bold">{product.promo_title}</p>}
-            </div>
-          )}
-
-          <div className="mt-7 rounded-3xl bg-stone-100 p-5">
-            {activePromo && <p className="text-sm text-stone-400 line-through">{money(product.price)}</p>}
-            <p className="text-4xl font-black">{money(finalPrice(product))}</p>
+          <div className="mt-5">
+            {activePromo ? (
+              <>
+                <p className="text-lg text-zinc-400 line-through">
+                  {formatPrice(product.price)}
+                </p>
+                <p className="text-4xl font-black">{formatPrice(finalPrice)}</p>
+                <p className="mt-2 text-sm font-bold text-red-600">
+                  {promoText(product)}
+                </p>
+              </>
+            ) : (
+              <p className="text-4xl font-black">{formatPrice(product.price)}</p>
+            )}
           </div>
 
-          {product.tags?.length ? (
+          <div className="mt-6 rounded-3xl bg-zinc-50 p-5">
+            <h2 className="font-black">Deskripsi</h2>
+            <p className="mt-3 whitespace-pre-line leading-7 text-zinc-600">
+              {product.description || "Belum ada deskripsi produk."}
+            </p>
+          </div>
+
+          {product.tags && product.tags.length > 0 ? (
             <div className="mt-5 flex flex-wrap gap-2">
-              {product.tags.map((tag) => <span key={tag} className="rounded-full border border-stone-300 px-3 py-1 text-xs font-bold text-stone-600">#{tag}</span>)}
+              {product.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold text-zinc-600"
+                >
+                  #{tag}
+                </span>
+              ))}
             </div>
           ) : null}
 
-          <a href={wa(product, settings)} target="_blank" className={`mt-7 flex items-center justify-center gap-2 rounded-2xl px-5 py-4 text-center font-black text-white ${product.status === "sold" ? "bg-stone-400" : "bg-stone-950 hover:bg-stone-800"}`}>
-            <MessageCircle size={20} /> {product.status === "sold" ? "Tanya Admin" : "Order via WhatsApp"}
-          </a>
+          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+            <a
+              href={waLink}
+              target="_blank"
+              className={`rounded-2xl px-5 py-4 text-center font-black text-white ${
+                product.status === "sold"
+                  ? "pointer-events-none bg-zinc-400"
+                  : "bg-zinc-950 hover:bg-zinc-800"
+              }`}
+            >
+              {product.status === "sold" ? "Produk Sold" : "Order WhatsApp"}
+            </a>
 
-          <div className="mt-6 rounded-3xl bg-stone-50 p-5 text-sm leading-6 text-stone-600 ring-1 ring-stone-200">
-            <p className="flex items-center gap-2 font-black text-stone-950"><ShieldCheck size={18} /> Catatan aman</p>
-            <p className="mt-2">Cek detail produk dulu sebelum order. Admin akan konfirmasi stok, harga, dan proses transaksi lewat WhatsApp.</p>
+            <Link
+              href={`/games/${gameSlug(product.game || "")}`}
+              className="rounded-2xl bg-zinc-100 px-5 py-4 text-center font-black text-zinc-950 hover:bg-zinc-200"
+            >
+              Lihat Produk Sejenis
+            </Link>
           </div>
-        </div>
-      </section>
-    </main>
-  );
-            }
+
+          <p className="mt-4 text-sm text-zinc-500">
+            {store.trust_text || "Diproses manual via WhatsApp."}
+    </p>  
+   </div>  
+ </section>  
+</main>
+
+);
+}
