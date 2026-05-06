@@ -164,23 +164,35 @@ export default async function ProductDetailPage({
 
       <section className="mx-auto grid max-w-7xl gap-6 px-4 py-8 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-[2rem] border border-zinc-200 bg-white p-4 shadow-sm">
-          <img
-            src={images[0].image_url}
-            alt={product.title}
-            className="h-80 w-full rounded-[1.5rem] bg-zinc-100 object-cover sm:h-[520px]"
-          />
+          <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth rounded-[1.5rem]">
+            {images.slice(0, 8).map((image, index) => (
+              <div key={image.id} className="min-w-full snap-center">
+                <img
+                  src={image.image_url}
+                  alt={`${product.title} foto ${index + 1}`}
+                  className="h-80 w-full rounded-[1.5rem] bg-zinc-100 object-cover sm:h-[520px]"
+                />
+              </div>
+            ))}
+          </div>
 
           {images.length > 1 ? (
-            <div className="mt-4 grid grid-cols-4 gap-3">
-              {images.slice(0, 8).map((image) => (
-                <img
-                  key={image.id}
-                  src={image.image_url}
-                  alt={product.title}
-                  className="h-20 w-full rounded-2xl bg-zinc-100 object-cover"
-                />
-              ))}
-            </div>
+            <>
+              <div className="mt-4 flex justify-center gap-2">
+                {images.slice(0, 8).map((image, index) => (
+                  <span
+                    key={image.id}
+                    className="rounded-full bg-zinc-200 px-3 py-1 text-xs font-bold text-zinc-600"
+                  >
+                    {index + 1}
+                  </span>
+                ))}
+              </div>
+
+              <p className="mt-3 text-center text-sm text-zinc-500">
+                Geser foto ke kiri atau kanan
+              </p>
+            </>
           ) : null}
         </div>
 
@@ -276,10 +288,9 @@ export default async function ProductDetailPage({
 
           <p className="mt-4 text-sm text-zinc-500">
             {store.trust_text || "Diproses manual via WhatsApp."}
-    </p>  
-   </div>  
- </section>  
-</main>
-
-);
-}
+          </p>
+        </div>
+      </section>
+    </main>
+  );
+          }
