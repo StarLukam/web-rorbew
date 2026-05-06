@@ -16,6 +16,7 @@ export type Product = {
   status: "available" | "sold" | string;
   featured: boolean | null;
   discount_percent: number | null;
+  promo_title: string | null;
   promo_ends_at: string | null;
   whatsapp_number: string | null;
   tags: string[] | null;
